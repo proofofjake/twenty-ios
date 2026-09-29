@@ -1,0 +1,16 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+
+# XcodeGen-generated project (regenerate with `xcodegen generate`)
+*.xcodeproj/
+
+# macOS
+.DS_Store
+
+# Local Twenty credentials
+Config/Secrets.xcconfig
+build-device/
+build-release/
