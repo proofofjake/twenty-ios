@@ -14,8 +14,10 @@ actor DemoTwentyService: TwentyService {
 
     func fetchObjects() async throws -> [ObjectMetadata] { objects }
 
-    func fetchRecords(_ object: ObjectMetadata, search: String, after cursor: String?) async throws -> RecordPage {
-        var all = store[object.namePlural] ?? []
+    func fetchRecords(_ object: ObjectMetadata, search: String, filter: ListFilter, memberID: String?, after cursor: String?) async throws -> RecordPage {
+        let objectWithInference = AppModel.withInferences(objects).first { $0.nameSingular == object.nameSingular } ?? object
+        var all = (store[object.namePlural] ?? []).map { withInferredPointOfContact($0, object: objectWithInference) }
+            .filter { filter.matches($0, object: objectWithInference, currentMemberID: memberID) }
         let query = search.trimmingCharacters(in: .whitespaces)
         if !query.isEmpty { all = all.filter { $0.title(in: object).localizedCaseInsensitiveContains(query) } }
         all.sort { $0.title(in: object).localizedCaseInsensitiveCompare($1.title(in: object)) == .orderedAscending }
@@ -53,7 +55,36 @@ actor DemoTwentyService: TwentyService {
         return expand(record, object: object)
     }
 
+    /// Soft-deleted records, restorable like Twenty's trash.
+    private var trash: [String: Record] = [:]
+
+    func deleteRecord(_ object: ObjectMetadata, id: String, permanently: Bool) async throws {
+        // Permanently deleting a trashed record empties it from the trash.
+        if permanently, trash.removeValue(forKey: "\(object.namePlural)/\(id)") != nil { return }
+        guard let record = store[object.namePlural]?.first(where: { $0.id == id }) else { throw TwentyError(message: "Not found") }
+        store[object.namePlural]?.removeAll { $0.id == id }
+        if !permanently { trash["\(object.namePlural)/\(id)"] = record }
+    }
+
+    func restoreRecord(_ object: ObjectMetadata, id: String) async throws {
+        guard let record = trash.removeValue(forKey: "\(object.namePlural)/\(id)") else { throw TwentyError(message: "Not in the trash") }
+        store[object.namePlural, default: []].append(record)
+    }
+
     func fetchCurrentMember() async throws -> Record? { nil }
+
+    /// What the server's relation filter computes: the person's inferred point
+    /// of contact, stored where `ListFilter.matches` looks for it.
+    private func withInferredPointOfContact(_ record: Record, object: ObjectMetadata) -> Record {
+        guard let sources = object.pointOfContact else { return record }
+        let companyOwner = sources.companyJoinColumn
+            .flatMap { record[$0].stringValue }
+            .flatMap { id in store["companies"]?.first { $0.id == id } }
+            .flatMap { company in sources.companyOwnerJoinColumn.flatMap { company[$0].stringValue } }
+        var copy = record
+        copy[PointOfContactSources.joinColumn] = sources.memberID(for: record, companyOwnerID: companyOwner).map { .string($0.id) } ?? .null
+        return copy
+    }
 
     /// Mimics `depth=1`: expands many-to-one relations from their foreign key.
     private func expand(_ record: Record, object: ObjectMetadata) -> Record {

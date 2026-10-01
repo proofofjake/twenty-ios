@@ -110,6 +110,7 @@ struct SettingsView: View {
                 LabeledContent("Objects", value: "\(app.objects.count)")
                 Button("Reload schema") { Task { await app.loadSchema() } }
             }
+            RecentActionsSection()
             Section {
                 Button(app.isDemo ? "Leave demo" : app.isSignedIn ? "Sign out" : "Disconnect", role: .destructive) { app.disconnect() }
             } footer: {

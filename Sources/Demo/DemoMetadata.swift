@@ -604,6 +604,43 @@ enum DemoData {
       "relation": null
      },
      {
+      "id": "f-company-account-owner",
+      "type": "RELATION",
+      "name": "accountOwner",
+      "label": "Account Owner",
+      "description": null,
+      "icon": null,
+      "isNullable": true,
+      "isActive": true,
+      "isSystem": false,
+      "isCustom": false,
+      "options": null,
+      "settings": {"relationType": "MANY_TO_ONE", "joinColumnName": "accountOwnerId", "onDelete": "SET_NULL"},
+      "relation": {
+       "type": "MANY_TO_ONE",
+       "targetObjectMetadata": {
+        "id": "fb0abc4e-e7c2-493f-b3cd-137754e4017f",
+        "nameSingular": "workspaceMember",
+        "namePlural": "workspaceMembers"
+       }
+      }
+     },
+     {
+      "id": "f-company-account-owner-id",
+      "type": "UUID",
+      "name": "accountOwnerId",
+      "label": "Account owner id",
+      "description": null,
+      "icon": null,
+      "isNullable": true,
+      "isActive": true,
+      "isSystem": true,
+      "isCustom": false,
+      "options": null,
+      "settings": null,
+      "relation": null
+     },
+     {
       "id": "3e0915c3-8de9-43f4-890e-7880d93b4210",
       "type": "RELATION",
       "name": "people",

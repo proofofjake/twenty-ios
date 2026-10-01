@@ -4,14 +4,31 @@ import Foundation
 /// to a real server over REST; `DemoTwentyService` is in-memory sample data.
 protocol TwentyService: Sendable {
     func fetchObjects() async throws -> [ObjectMetadata]
-    func fetchRecords(_ object: ObjectMetadata, search: String, after cursor: String?) async throws -> RecordPage
+    /// A page of records matching the search text and list filters; `memberID`
+    /// resolves the filter's "Me" token.
+    func fetchRecords(_ object: ObjectMetadata, search: String, filter: ListFilter, memberID: String?, after cursor: String?) async throws -> RecordPage
     func fetchRecord(_ object: ObjectMetadata, id: String) async throws -> Record
     /// Records with the given ids (depth 0), e.g. to label rows with company names.
     func fetchRecords(_ object: ObjectMetadata, ids: [String]) async throws -> [Record]
     func updateRecord(_ object: ObjectMetadata, id: String, patch: [String: JSONValue]) async throws -> Record
     func createRecord(_ object: ObjectMetadata, values: [String: JSONValue]) async throws -> Record
+    /// Moves a record to Twenty's trash (restorable from "Deleted" on the
+    /// web), or removes it for good when `permanently` is set.
+    func deleteRecord(_ object: ObjectMetadata, id: String, permanently: Bool) async throws
+    /// Brings a soft-deleted record back out of the trash.
+    func restoreRecord(_ object: ObjectMetadata, id: String) async throws
     /// The signed-in person's `workspaceMember` record; nil for API keys and demo data.
     func fetchCurrentMember() async throws -> Record?
+}
+
+extension TwentyService {
+    func fetchRecords(_ object: ObjectMetadata, search: String, after cursor: String?) async throws -> RecordPage {
+        try await fetchRecords(object, search: search, filter: ListFilter(), memberID: nil, after: cursor)
+    }
+
+    func deleteRecord(_ object: ObjectMetadata, id: String) async throws {
+        try await deleteRecord(object, id: id, permanently: false)
+    }
 }
 
 struct TwentyError: LocalizedError {
@@ -119,7 +136,7 @@ struct LiveTwentyService: TwentyService {
         return all
     }
 
-    func fetchRecords(_ object: ObjectMetadata, search: String, after cursor: String?) async throws -> RecordPage {
+    func fetchRecords(_ object: ObjectMetadata, search: String, filter: ListFilter, memberID: String?, after cursor: String?) async throws -> RecordPage {
         var query = [
             URLQueryItem(name: "limit", value: String(Self.pageSize)),
             // depth=1 would also inline every one-to-many list (all of a
@@ -128,9 +145,21 @@ struct LiveTwentyService: TwentyService {
             URLQueryItem(name: "order_by", value: object.defaultOrderBy),
         ]
         if let cursor { query.append(URLQueryItem(name: "starting_after", value: cursor)) }
-        if let filter = object.searchFilter(search) { query.append(URLQueryItem(name: "filter", value: filter)) }
+        if let clause = Self.combine(object.searchFilter(search), filter.restClause(for: object, currentMemberID: memberID)) {
+            query.append(URLQueryItem(name: "filter", value: clause))
+        }
         let data = try await send("GET", path: "rest/\(object.namePlural)", query: query)
         return try Self.decodePage(data, object: object)
+    }
+
+    /// Search text and list filters must both hold.
+    static func combine(_ clauses: String?...) -> String? {
+        let present = clauses.compactMap { $0 }
+        switch present.count {
+        case 0: return nil
+        case 1: return present[0]
+        default: return "and(\(present.joined(separator: ",")))"
+        }
     }
 
     func fetchRecords(_ object: ObjectMetadata, ids: [String]) async throws -> [Record] {
@@ -163,6 +192,18 @@ struct LiveTwentyService: TwentyService {
         let body = try JSONEncoder().encode(values)
         let data = try await send("POST", path: "rest/\(object.namePlural)", query: [URLQueryItem(name: "depth", value: "1")], body: body)
         return try Self.decodeRecord(data, object: object)
+    }
+
+    func deleteRecord(_ object: ObjectMetadata, id: String, permanently: Bool) async throws {
+        // Without soft_delete=true, REST DELETE destroys the record for good
+        // (twenty-server rest-api-core.service: destroyOne vs deleteOne).
+        let query = permanently ? [] : [URLQueryItem(name: "soft_delete", value: "true")]
+        _ = try await send("DELETE", path: "rest/\(object.namePlural)/\(id)", query: query)
+    }
+
+    func restoreRecord(_ object: ObjectMetadata, id: String) async throws {
+        // Restore is the one three-segment REST path, PATCH only.
+        _ = try await send("PATCH", path: "rest/\(object.namePlural)/\(id)/restore", query: [])
     }
 
     func fetchCurrentMember() async throws -> Record? {

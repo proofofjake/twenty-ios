@@ -106,6 +106,72 @@ scripts/testflight.sh --no-upload  # archive + export an .ipa only
 - Forms and detail screens show the title first, then `domainName` (the
   website). All other fields keep the workspace's order (`ObjectMetadata.pinnedFirst`).
 
+## Point of contact (people)
+
+- **What it is:** people in the tGBP workspace have no owner field, so the app
+  infers each person's internal point of contact (`PointOfContactSources`):
+  1. their company's account owner, else
+  2. whoever brought them into Twenty (`createdBy.workspaceMemberId`). That's
+     the member who created them, or whose inbox or calendar sync imported them.
+- **Where it shows:** a **Point of contact** filter chip on People (Me, each
+  team member, Unassigned), a line on each person row, and a row on the detail
+  screen that says which of the two rules applied.
+- **How it filters:** on the server, with twenty-server's one-hop relation
+  filters, which are LEFT JOINs:
+  `or(company.accountOwnerId[in]:[…],and(or(companyId[is]:NULL,company.accountOwnerId[is]:NULL),createdBy.workspaceMemberId[in]:[…]))`.
+- **If People gets its own owner field:** add an `accountOwner` field to People
+  in Twenty and it replaces the inference automatically.
+
+## Deleting and undo
+
+- **Where:** swipe left on a row, or use ⋯ → Delete on a record. Either opens a
+  confirmation sheet, and nothing happens until you tap Delete there.
+- **Soft deletes only:** records are always soft-deleted (`DELETE …?soft_delete=true`),
+  which moves them to Twenty's trash. Without that flag, Twenty's REST DELETE
+  destroys the record permanently.
+- **Options in the sheet:**
+  - On a company, "Also delete its N people" (off by default).
+  - "Stop importing @domain" (off by default; needs a signed-in member). It
+    adds a `blocklist` entry so inbox and calendar sync don't re-add it. People
+    on webmail domains are blocked by exact address, not by the whole domain.
+- **Undo:** a banner offers Undo for 6 seconds. Settings → **Recent actions**
+  keeps each delete for 24 hours, saved per workspace, so it survives
+  relaunching. Undo calls `PATCH /rest/{plural}/{id}/restore` and permanently
+  removes the blocklist entry it added.
+- **Commit:** a Commit button on each entry, plus **Commit all**, makes the
+  delete final. It permanently deletes the record from Twenty's trash with
+  `DELETE` (no `soft_delete`), which uses the same destroy code path as
+  emptying the trash on the web. It asks first, and blocks it added stay.
+
+## Local vs TestFlight builds
+
+Debug builds, meaning anything installed from Xcode or `devicectl`, are
+marked so they can't be mistaken for the TestFlight app:
+- they're called **CRM Local** (`APP_DISPLAY_NAME` per config in project.yml);
+- they use the orange **AppIcon-Local** icon (`swift scripts/make-icon.swift … --local`);
+- they draw an orange frame around the screen (`LocalBuildFrame`, `#if DEBUG`).
+
+Release builds (TestFlight) are unchanged: "CRM" with the blue icon.
+
+## List filters
+
+- Lists with select, multi-select or owner fields get a chip bar under the
+  title. On Companies that's **Tier**, **Owner** and a **Filters** button with
+  every filterable field (sectors and so on).
+- Filters stack: AND across fields, OR within a field (Tier 1 or Tier 2, and
+  owned by me). Owner options include **Me**, which follows whoever is signed
+  in, and **Unassigned**. Select fields have a "No …" option.
+- Picking applies straight away. The sheet's button shows the live match count ("Show 12").
+- Filters are saved per workspace in UserDefaults (`listFilters.<server>|<workspace>`),
+  so they survive quitting the app. Option keys deleted from the workspace are
+  ignored rather than emptying the list.
+- Wire format, checked against twenty-server's REST filter parser: `tier[in]:["TIER_1"]`,
+  `sectors[containsAny]:[…]`, `accountOwnerId[in]:[uuid,…]`, `x[is]:NULL`, nested in
+  `and(…)`/`or(…)` and combined with the search clause. See `Sources/Models/ListFilter.swift`.
+- iOS 26: a horizontal `ScrollView` pinned under the navigation bar isn't drawn,
+  so the chip row uses `ViewThatFits` and shows as many chips as fit. It's pinned
+  with `safeAreaBar` on iOS 26 and `safeAreaInset` earlier.
+
 ## Not yet
 
 Deleting records, rich-text (notes body) editing, and file attachments.

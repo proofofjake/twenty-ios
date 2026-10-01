@@ -9,6 +9,18 @@ struct RecordDetailView: View {
     /// Target object and prefilled values for "Add person" etc.
     @State private var creating: RelatedCreate?
     @State private var error: String?
+    @State private var isDeleting = false
+    @Environment(\.dismiss) private var dismiss
+
+    /// People's inferred point of contact, and why (the detail record is
+    /// depth 1, so the company comes with its owner id).
+    private var pointOfContact: (name: String, why: String)? {
+        guard let sources = object.pointOfContact else { return nil }
+        let companyOwner = sources.companyField.flatMap { record[$0][sources.companyOwnerJoinColumn ?? ""]?.stringValue }
+        guard let found = sources.memberID(for: record, companyOwnerID: companyOwner),
+              let name = app.memberName(found.id) else { return nil }
+        return (name, found.source == .companyOwner ? "Company's account owner" : "Added them to Twenty")
+    }
 
     struct RelatedCreate: Identifiable {
         let id = UUID()
@@ -26,6 +38,15 @@ struct RecordDetailView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
+                if let poc = pointOfContact {
+                    LabeledContent("Point of contact") {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(poc.name)
+                            Text(poc.why).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("record.pointOfContact")
+                }
                 ForEach(object.pinnedFirst(object.visibleFields).filter { $0.id != object.labelIdentifierField?.id }) { field in
                     FieldValueRow(field: field, value: record[field.name])
                 }
@@ -39,7 +60,20 @@ struct RecordDetailView: View {
         .toolbar {
             if object.isWritable {
                 Button("Edit") { isEditing = true }.accessibilityIdentifier("record.edit")
+                Menu {
+                    Button(role: .destructive) { isDeleting = true } label: {
+                        Label("Delete \(object.labelSingular.lowercased())", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("record.delete")
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More")
+                .accessibilityIdentifier("record.more")
             }
+        }
+        .sheet(isPresented: $isDeleting) {
+            DeleteRecordSheet(object: object, record: record) { dismiss() }
         }
         .refreshable { await refresh() }
         // List rows are fetched without relations; load the full record here.

@@ -154,6 +154,9 @@ struct ObjectMetadata: Codable, Hashable, Identifiable, Sendable {
     let labelIdentifierFieldMetadataId: String?
     let imageIdentifierFieldMetadataId: String?
     let fields: [FieldMetadata]
+    /// Set by the app (not the server) when this object has no owner field
+    /// of its own but one can be inferred; see `PointOfContactSources`.
+    var pointOfContact: PointOfContactSources?
 
     enum CodingKeys: String, CodingKey {
         case id, nameSingular, namePlural, labelSingular, labelPlural, icon, isActive, isSystem, isUIEditable, writability

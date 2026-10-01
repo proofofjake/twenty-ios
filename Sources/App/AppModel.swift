@@ -21,6 +21,149 @@ final class AppModel {
 
     func didSave(_ record: Record) { savedRecords[record.id] = record }
 
+    // MARK: Deleting
+
+    /// Records deleted this session; lists hide them before they reload.
+    private(set) var deletedIDs: Set<String> = []
+
+    /// Twenty's email/calendar-sync blocklist, when the workspace has one
+    /// and we know who's signed in (entries belong to a workspace member).
+    var canBlockImports: Bool { currentMember != nil && object(named: "blocklist") != nil }
+
+    /// Soft-deletes `record` (and optionally `people` first), and optionally
+    /// blocklists `blockHandle` so the next inbox/calendar sync doesn't
+    /// import it again. Logged in Recent actions so it can be undone.
+    @discardableResult
+    func delete(_ record: Record, of object: ObjectMetadata, alsoDeleting people: [Record] = [], blockHandle: String? = nil) async throws -> RecentAction {
+        guard let service else { throw TwentyError(message: "Not connected") }
+        var action = RecentAction()
+        // Log each step as it succeeds, so a failure midway is still undoable.
+        defer {
+            if !action.items.isEmpty {
+                recentActions.insert(action, at: 0)
+                undoBanner = action
+                saveRecentActions()
+            }
+        }
+        if let blockHandle, let blocklist = self.object(named: "blocklist"), let me = currentMember {
+            var values: [String: JSONValue] = ["handle": .string(blockHandle), "workspaceMemberId": .string(me.id)]
+            if blocklist.field(named: "scope") != nil { values["scope"] = "WORKSPACE_MEMBER" }
+            let entry = try await service.createRecord(blocklist, values: values)
+            action.items.append(.blocked(id: entry.id, handle: blockHandle))
+        }
+        if !people.isEmpty, let person = self.object(named: "person") {
+            for p in people {
+                try await service.deleteRecord(person, id: p.id)
+                deletedIDs.insert(p.id)
+                action.items.append(.deleted(object: person.nameSingular, id: p.id, title: p.title(in: person)))
+            }
+            listRevision[person.nameSingular, default: 0] += 1
+        }
+        try await service.deleteRecord(object, id: record.id)
+        deletedIDs.insert(record.id)
+        action.items.append(.deleted(object: object.nameSingular, id: record.id, title: record.title(in: object)))
+        listRevision[object.nameSingular, default: 0] += 1
+        return action
+    }
+
+    // MARK: Recent actions (undo)
+
+    /// Deletes from the last 24 hours, newest first, saved per workspace.
+    private(set) var recentActions: [RecentAction] = []
+    /// The action the bottom "Undo" banner offers, just after it happened.
+    var undoBanner: RecentAction?
+
+    /// Restores what `action` deleted and removes the blocklist entry it
+    /// added, newest step first.
+    func undo(_ action: RecentAction) async throws {
+        guard let service else { throw TwentyError(message: "Not connected") }
+        var remaining = action.items
+        defer {
+            if let index = recentActions.firstIndex(where: { $0.id == action.id }) {
+                if remaining.isEmpty { recentActions.remove(at: index) } else { recentActions[index].items = remaining }
+                saveRecentActions()
+            }
+            if undoBanner?.id == action.id { undoBanner = nil }
+        }
+        for item in action.items.reversed() {
+            switch item {
+            case .deleted(let name, let id, _):
+                guard let object = self.object(named: name) else { continue }
+                try await service.restoreRecord(object, id: id)
+                deletedIDs.remove(id)
+                listRevision[name, default: 0] += 1
+            case .blocked(let id, _):
+                if let blocklist = self.object(named: "blocklist") {
+                    // Our own entry; removing it for good lets sync resume.
+                    try await service.deleteRecord(blocklist, id: id, permanently: true)
+                }
+            }
+            remaining.removeAll { $0 == item }
+        }
+    }
+
+    /// Makes `action` final: permanently deletes its records from Twenty's
+    /// trash and drops it from Recent actions. Blocks it added stay.
+    func commit(_ action: RecentAction) async throws {
+        guard let service else { throw TwentyError(message: "Not connected") }
+        var remaining = action.items
+        defer {
+            if let index = recentActions.firstIndex(where: { $0.id == action.id }) {
+                let left = remaining.filter { if case .deleted = $0 { true } else { false } }
+                if left.isEmpty { recentActions.remove(at: index) } else { recentActions[index].items = remaining }
+                saveRecentActions()
+            }
+            if undoBanner?.id == action.id { undoBanner = nil }
+        }
+        for item in action.items {
+            guard case .deleted(let name, let id, _) = item, let object = self.object(named: name) else { continue }
+            // Destroy works on trashed records: it's how Twenty empties its trash.
+            try await service.deleteRecord(object, id: id, permanently: true)
+            remaining.removeAll { $0 == item }
+        }
+    }
+
+    func commitAll() async throws {
+        for action in recentActions { try await commit(action) }
+    }
+
+    private var actionsKey: String { "recentActions." + workspaceKey }
+
+    private func loadRecentActions() {
+        recentActions = (UserDefaults.standard.data(forKey: actionsKey)
+            .flatMap { try? JSONDecoder().decode([RecentAction].self, from: $0) } ?? [])
+            .filter { !$0.isExpired }
+    }
+
+    private func saveRecentActions() {
+        recentActions.removeAll(where: \.isExpired)
+        if let data = try? JSONEncoder().encode(recentActions) { UserDefaults.standard.set(data, forKey: actionsKey) }
+    }
+
+    // MARK: List filters
+
+    /// Each list's filters, by object name, for the current workspace. Saved
+    /// on every change so they survive quitting and relaunching the app.
+    private(set) var listFilters: [String: ListFilter] = [:]
+
+    func filter(for object: ObjectMetadata) -> ListFilter { listFilters[object.nameSingular] ?? ListFilter() }
+
+    func setFilter(_ filter: ListFilter, for object: ObjectMetadata) {
+        listFilters[object.nameSingular] = filter.isEmpty ? nil : filter
+        guard let data = try? JSONEncoder().encode(listFilters) else { return }
+        UserDefaults.standard.set(data, forKey: filtersKey)
+    }
+
+    /// Filters hold option keys and member ids, which only mean something
+    /// in one workspace, so each workspace (and demo mode) keeps its own.
+    private var filtersKey: String { "listFilters." + workspaceKey }
+    private var workspaceKey: String { isDemo ? "demo" : serverURL + "|" + workspaceURL }
+
+    private func loadFilters() {
+        listFilters = UserDefaults.standard.data(forKey: filtersKey)
+            .flatMap { try? JSONDecoder().decode([String: ListFilter].self, from: $0) } ?? [:]
+    }
+
     func didCreate(_ record: Record, in object: ObjectMetadata) {
         savedRecords[record.id] = record
         listRevision[object.nameSingular, default: 0] += 1
@@ -51,6 +194,8 @@ final class AppModel {
         // UI tests start from default preferences.
         if ProcessInfo.processInfo.arguments.contains("-resetPreferences") {
             UserDefaults.standard.removeObject(forKey: CreateFlowView.advancedModeKey)
+            UserDefaults.standard.removeObject(forKey: "listFilters.demo")
+            UserDefaults.standard.removeObject(forKey: "recentActions.demo")
         }
         if isDemo {
             service = DemoTwentyService()
@@ -138,8 +283,11 @@ final class AppModel {
         UserDefaults.standard.set(false, forKey: Keys.demo)
         isDemo = false
         service = candidate
-        objects = loaded
+        objects = Self.withInferences(loaded)
+        loadFilters()
+        loadRecentActions()
         phase = .ready
+        Task { await loadMembers() }
     }
 
     func startDemo() async {
@@ -178,14 +326,40 @@ final class AppModel {
 
     func loadSchema() async {
         guard let service else { phase = .disconnected; return }
+        loadFilters()
+        loadRecentActions()
         phase = .loading
         do {
-            objects = try await service.fetchObjects()
+            objects = Self.withInferences(try await service.fetchObjects())
             phase = .ready
+            await loadMembers()
             if currentMember == nil { currentMember = try? await service.fetchCurrentMember() }
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Marks objects whose owner can be inferred (people: company owner,
+    /// else whoever added them).
+    nonisolated static func withInferences(_ objects: [ObjectMetadata]) -> [ObjectMetadata] {
+        objects.map { object in
+            var copy = object
+            copy.pointOfContact = PointOfContactSources.infer(for: object, in: objects)
+            return copy
+        }
+    }
+
+    /// Workspace members (the team), for owner filters and point-of-contact names.
+    private(set) var members: [Record] = []
+
+    func memberName(_ id: String?) -> String? {
+        guard let id, let object = object(named: "workspaceMember"), let member = members.first(where: { $0.id == id }) else { return nil }
+        return member.title(in: object)
+    }
+
+    private func loadMembers() async {
+        guard let service, let object = object(named: "workspaceMember") else { return }
+        members = (try? await service.fetchRecords(object, search: "", after: nil).records) ?? members
     }
 
     func object(named nameSingular: String) -> ObjectMetadata? {

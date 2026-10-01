@@ -21,7 +21,8 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-        CFBundleDisplayName: CRM
+        # "CRM Local" on Debug (Xcode / devicectl installs), "CRM" on Release (TestFlight).
+        CFBundleDisplayName: $(APP_DISPLAY_NAME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Only standard HTTPS; skips the export-compliance question on every upload.
@@ -32,6 +33,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tgbp.twentycrm
+        APP_DISPLAY_NAME: CRM
         MARKETING_VERSION: "1.0"
         # scripts/testflight.sh overrides this with a timestamp per upload.
         CURRENT_PROJECT_VERSION: "1"
@@ -39,6 +41,12 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+      configs:
+        # Local builds look different from the TestFlight app: name, orange
+        # icon (AppIcon-Local) and an orange frame around the screen (#if DEBUG).
+        Debug:
+          APP_DISPLAY_NAME: CRM Local
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Local
 
   TwentyCRMTests:
     type: bundle.unit-test

@@ -6,6 +6,7 @@ struct RecordListView: View {
     @Environment(AppModel.self) private var app
     @Environment(Navigator.self) private var navigator
     @State private var isCreating = false
+    @State private var deleting: Record?
 
     @State private var records: [Record] = []
     @State private var cursor: String?
@@ -18,22 +19,40 @@ struct RecordListView: View {
     @State private var loadedRevision = 0
     /// Company names for rows, looked up in one batch per page.
     @State private var relatedTitles: [String: String] = [:]
+    /// Each listed company's owner (e.g. `accountOwnerId`), for people's
+    /// inferred point of contact.
+    @State private var companyOwners: [String: String] = [:]
+
+    /// This list's saved filters (persisted per workspace by AppModel).
+    private var filter: Binding<ListFilter> {
+        Binding(get: { app.filter(for: object) }, set: { app.setFilter($0, for: object) })
+    }
+    private var isFiltered: Bool { !app.filter(for: object).isEmpty }
+    private var memberObject: ObjectMetadata? { app.object(named: "workspaceMember") }
 
     var body: some View {
         List {
-            ForEach(records) { listed in
+            ForEach(records.filter { !app.deletedIDs.contains($0.id) }) { listed in
                 let record = app.savedRecords[listed.id] ?? listed
                 NavigationLink(value: Route.record(object: object.nameSingular, record)) {
-                    RecordRow(object: object, record: record, relatedTitles: relatedTitles)
+                    RecordRow(object: object, record: record, relatedTitles: relatedTitles, pointOfContact: pointOfContactName(record))
                 }
                 .onAppear { if record.id == records.last?.id { Task { await loadMore() } } }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if object.isWritable {
+                        Button { deleting = record } label: { Label("Delete", systemImage: "trash") }
+                            .tint(.red)
+                            .accessibilityIdentifier("row.delete")
+                    }
+                }
             }
             if isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
             if let error {
                 Text(error).foregroundStyle(.red)
             }
             if let totalCount, !records.isEmpty {
-                Text("\(totalCount) \(object.labelPlural.lowercased())")
+                let noun = (totalCount == 1 ? object.labelSingular : object.labelPlural).lowercased()
+                Text("\(totalCount) \(noun)\(isFiltered ? (totalCount == 1 ? " matches these filters" : " match these filters") : "")")
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).listRowSeparator(.hidden)
             }
@@ -41,7 +60,24 @@ struct RecordListView: View {
         .listStyle(.plain)
         .overlay {
             if records.isEmpty, !isLoading, error == nil {
-                ContentUnavailableView(query.isEmpty ? "No \(object.labelPlural)" : "No results", systemImage: "magnifyingglass")
+                if isFiltered {
+                    ContentUnavailableView {
+                        Label("No matches", systemImage: "line.3.horizontal.decrease")
+                    } description: {
+                        Text("No \(object.labelPlural.lowercased()) match these filters\(query.isEmpty ? "" : " and search").")
+                    } actions: {
+                        Button("Clear filters") { filter.wrappedValue = ListFilter() }
+                            .accessibilityIdentifier("filter.emptyClear")
+                    }
+                } else {
+                    ContentUnavailableView(query.isEmpty ? "No \(object.labelPlural)" : "No results", systemImage: "magnifyingglass")
+                }
+            }
+        }
+        .topBar {
+            if !object.filterableFields.isEmpty {
+                FilterBar(object: object, filter: filter, members: app.members, memberObject: memberObject,
+                          hasMe: app.currentMember != nil, resultCount: totalCount)
             }
         }
         .navigationTitle(object.labelPlural)
@@ -50,6 +86,9 @@ struct RecordListView: View {
                 AddButton(label: "New \(object.labelSingular.lowercased())") { isCreating = true }
                     .padding(20)
             }
+        }
+        .sheet(item: $deleting) { record in
+            DeleteRecordSheet(object: object, record: record) {}
         }
         .sheet(isPresented: $isCreating) {
             CreateFlowView(object: object) { created in
@@ -63,7 +102,7 @@ struct RecordListView: View {
             // a pushed screen; catch up when it comes back.
             if loadedRevision != app.listRevision[object.nameSingular] ?? 0 { Task { await reload() } }
         }
-        .task(id: "\(query)#\(app.listRevision[object.nameSingular] ?? 0)") {
+        .task(id: "\(query)#\(app.listRevision[object.nameSingular] ?? 0)#\(app.filter(for: object).hashValue)") {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
             await reload()
@@ -84,7 +123,18 @@ struct RecordListView: View {
               let company = app.object(named: "company"), let service = app.service else { return }
         let ids = Set(page.compactMap { $0[field.joinColumnName].stringValue }).subtracting(relatedTitles.keys)
         guard !ids.isEmpty, let found = try? await service.fetchRecords(company, ids: Array(ids)) else { return }
-        for record in found { relatedTitles[record.id] = record.title(in: company) }
+        let ownerColumn = company.visibleFields.first(where: \.isOwnerLink)?.joinColumnName
+        for record in found {
+            relatedTitles[record.id] = record.title(in: company)
+            if let ownerColumn, let owner = record[ownerColumn].stringValue { companyOwners[record.id] = owner }
+        }
+    }
+
+    /// "Raph": their company's account owner, else whoever added them.
+    private func pointOfContactName(_ record: Record) -> String? {
+        guard let sources = object.pointOfContact else { return nil }
+        let companyOwner = sources.companyJoinColumn.flatMap { record[$0].stringValue }.flatMap { companyOwners[$0] }
+        return app.memberName(sources.memberID(for: record, companyOwnerID: companyOwner)?.id)
     }
 
     private func loadMore() async {
@@ -97,7 +147,8 @@ struct RecordListView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            let page = try await service.fetchRecords(object, search: query, after: replacing ? nil : cursor)
+            let page = try await service.fetchRecords(object, search: query, filter: app.filter(for: object),
+                                                      memberID: app.currentMember?.id, after: replacing ? nil : cursor)
             records = replacing ? page.records : records + page.records.filter { new in !records.contains { $0.id == new.id } }
             await loadCompanyNames(for: page.records)
             cursor = page.endCursor
@@ -158,6 +209,8 @@ struct RecordRow: View {
     var relatedTitles: [String: String] = [:]
     /// False where the company is already obvious (a company's People list).
     var showsCompany = true
+    /// Inferred internal point of contact (people without an owner field).
+    var pointOfContact: String?
 
     /// "Northwind Exchange" for a person, from the expanded relation or the lookup.
     private var companyName: String? {
@@ -191,6 +244,13 @@ struct RecordRow: View {
                         .foregroundStyle(.secondary)
                         .labelStyle(CompactLabelStyle())
                         .lineLimit(1)
+                }
+                if let pointOfContact {
+                    Label(pointOfContact, systemImage: "person.crop.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(CompactLabelStyle())
+                        .accessibilityLabel("Point of contact \(pointOfContact)")
                 }
                 if let subtitleField {
                     let subtitle = subtitleField.type == .emails

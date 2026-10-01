@@ -8,9 +8,34 @@ struct TwentyCRMApp: App {
         WindowGroup {
             RootView()
                 .environment(app)
+                #if DEBUG
+                .overlay { LocalBuildFrame() }
+                #endif
         }
     }
 }
+
+#if DEBUG
+/// Orange frame around the screen on local (Debug) builds, so they're never
+/// confused with the TestFlight app. Release builds don't compile this.
+private struct LocalBuildFrame: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: Self.displayCornerRadius, style: .continuous)
+            .strokeBorder(Color.orange, lineWidth: 4)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Follows the display's rounded corners on Face ID iPhones (~55pt);
+    /// square on home-button screens, which have no bottom safe area.
+    private static var displayCornerRadius: CGFloat {
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let bottom = scene?.windows.first?.safeAreaInsets.bottom ?? 0
+        return bottom > 0 ? 55 : 0
+    }
+}
+#endif
 
 struct RootView: View {
     @Environment(AppModel.self) private var app
@@ -19,6 +44,14 @@ struct RootView: View {
         switch app.phase {
         case .ready:
             MainTabView()
+                .overlay(alignment: .bottom) {
+                    if let action = app.undoBanner {
+                        UndoBanner(action: action)
+                            .padding(.bottom, 96) // clear of the tab bar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.snappy, value: app.undoBanner?.id)
         case .loading:
             ProgressView("Loading workspace…")
         case .disconnected:

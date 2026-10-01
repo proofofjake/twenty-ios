@@ -56,12 +56,12 @@ final class CreateFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["What's their website?"].waitForExistence(timeout: 5))
         snap("f3-company-website")
         app.buttons["flow.company.skip"].tap()
-        // Single select answered inline; tapping advances.
-        XCTAssertTrue(app.buttons["option.Tier 2"].waitForExistence(timeout: 5))
+        // Tier and account owner share one step (as in the tGBP workspace);
+        // Create is available from any step.
+        XCTAssertTrue(app.staticTexts["Tier, owner and type"].waitForExistence(timeout: 5))
         snap("f4-company-tier")
-        app.buttons["option.Tier 2"].tap()
-        XCTAssertTrue(app.buttons["flow.company.create"].waitForExistence(timeout: 5))
-        app.buttons["flow.company.create"].tap()
+        XCTAssertTrue(app.buttons["flow.company.createNow"].waitForExistence(timeout: 5))
+        app.buttons["flow.company.createNow"].tap()
 
         // Back in the person flow with the company picked, moved on to contact.
         XCTAssertTrue(app.staticTexts["How do you reach them?"].waitForExistence(timeout: 5))
