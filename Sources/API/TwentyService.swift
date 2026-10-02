@@ -19,6 +19,13 @@ protocol TwentyService: Sendable {
     func restoreRecord(_ object: ObjectMetadata, id: String) async throws
     /// The signed-in person's `workspaceMember` record; nil for API keys and demo data.
     func fetchCurrentMember() async throws -> Record?
+    #if DEBUG
+    /// Twenty's merge: `ids[conflictPriorityIndex]` survives with the merged
+    /// values and everything related to the others; the others are
+    /// HARD-deleted (no trash, no undo). `dryRun` writes nothing and returns
+    /// the would-be merged record. Returns the survivor at depth 1.
+    func mergeRecords(_ object: ObjectMetadata, ids: [String], conflictPriorityIndex: Int, dryRun: Bool) async throws -> Record
+    #endif
 }
 
 extension TwentyService {
@@ -205,6 +212,19 @@ struct LiveTwentyService: TwentyService {
         // Restore is the one three-segment REST path, PATCH only.
         _ = try await send("PATCH", path: "rest/\(object.namePlural)/\(id)/restore", query: [])
     }
+
+    #if DEBUG
+    func mergeRecords(_ object: ObjectMetadata, ids: [String], conflictPriorityIndex: Int, dryRun: Bool) async throws -> Record {
+        let body = try JSONEncoder().encode([
+            "ids": .array(ids.map(JSONValue.string)),
+            "conflictPriorityIndex": .number(Double(conflictPriorityIndex)),
+            "dryRun": .bool(dryRun),
+        ] as [String: JSONValue])
+        // `PATCH /rest/<plural>/merge` answers `{data: {mergeCompanies: …}}`; decodeRecord takes the first record under data.
+        let data = try await send("PATCH", path: "rest/\(object.namePlural)/merge", query: [URLQueryItem(name: "depth", value: "1")], body: body)
+        return try Self.decodeRecord(data, object: object)
+    }
+    #endif
 
     func fetchCurrentMember() async throws -> Record? {
         // Only user tokens name a user; API keys act as the workspace.

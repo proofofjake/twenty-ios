@@ -98,12 +98,30 @@ struct MoreObjectsView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        List(app.otherObjects) { object in
-            NavigationLink(object.labelPlural, value: Route.list(object: object.nameSingular))
+        List {
+            #if DEBUG
+            // Local builds only: review Claude's guesses for empty company fields.
+            if app.object(named: "company") != nil {
+                Section { ClaudeGuessesRow() }
+            }
+            #endif
+            Section {
+                ForEach(app.otherObjects) { object in
+                    NavigationLink(object.labelPlural, value: Route.list(object: object.nameSingular))
+                }
+            }
         }
         .overlay {
-            if app.otherObjects.isEmpty { ContentUnavailableView("No other objects", systemImage: "square.grid.2x2") }
+            if app.otherObjects.isEmpty, !hasDebugRows { ContentUnavailableView("No other objects", systemImage: "square.grid.2x2") }
         }
         .navigationTitle("More")
+    }
+
+    private var hasDebugRows: Bool {
+        #if DEBUG
+        app.object(named: "company") != nil
+        #else
+        false
+        #endif
     }
 }

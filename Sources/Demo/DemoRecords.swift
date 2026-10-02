@@ -19,17 +19,50 @@ extension DemoData {
                 "annualRecurringRevenue": ["amountMicros": 4_500_000_000_000, "currencyCode": "GBP"],
                 "address": ["addressStreet1": "1 Finsbury Sq", "addressCity": "London", "addressPostcode": "EC2A 1AE", "addressCountry": "United Kingdom"],
                 "sectors": ["EXCHANGE", "DEFI"], "tier": "TIER_1", "accountOwnerId": "m0000000-0000-4000-8000-000000000001",
+                "tag": nil, "companyType": ["EXCHANGE"],
             ]),
             stamp([
                 "id": "c0000000-0000-4000-8000-000000000002", "name": "Harbour Bank",
                 "domainName": ["primaryLinkUrl": "harbourbank.example", "primaryLinkLabel": "", "secondaryLinks": []],
                 "employees": 5200, "idealCustomerProfile": false,
                 "sectors": ["BANK", "CUSTODY", "PAYMENTS"], "tier": "TIER_2", "accountOwnerId": "m0000000-0000-4000-8000-000000000002",
+                "tag": "INSTITUTIONAL", "companyType": ["BANK"],
             ]),
             stamp([
                 "id": "c0000000-0000-4000-8000-000000000003", "name": "Lumen Payments",
                 "domainName": ["primaryLinkUrl": "lumenpay.example", "primaryLinkLabel": "", "secondaryLinks": []],
                 "employees": 58, "sectors": ["FINTECH", "PAYMENTS"], "tier": nil, "accountOwnerId": nil,
+                "tag": nil, "companyType": [],
+            ]),
+            // Mostly empty, for Claude's educated guesses (Debug) to fill in.
+            stamp([
+                "id": "c0000000-0000-4000-8000-000000000004", "name": "Atlas Asset Management",
+                "domainName": ["primaryLinkUrl": "", "primaryLinkLabel": "", "secondaryLinks": []],
+                "sectors": [], "tier": "TIER_2", "accountOwnerId": nil, "tag": nil, "companyType": [],
+            ]),
+            stamp([
+                "id": "c0000000-0000-4000-8000-000000000005", "name": "Brightline Labs",
+                "domainName": nil, "sectors": [], "tier": "TIER_3", "accountOwnerId": nil, "tag": nil, "companyType": nil,
+            ]),
+            stamp([
+                "id": "c0000000-0000-4000-8000-000000000006", "name": "Cobalt Custody",
+                "domainName": ["primaryLinkUrl": "", "primaryLinkLabel": "", "secondaryLinks": []],
+                "address": ["addressStreet1": "", "addressCity": "Edinburgh", "addressPostcode": "", "addressCountry": "United Kingdom"],
+                "sectors": ["CUSTODY"], "tier": "TIER_3", "accountOwnerId": "m0000000-0000-4000-8000-000000000002",
+                "tag": nil, "companyType": [],
+            ]),
+            // Cobalt Custody added twice (Debug: Claude suggests merging them).
+            stamp([
+                "id": "c0000000-0000-4000-8000-000000000008", "name": "Cobalt Custody Ltd",
+                "domainName": ["primaryLinkUrl": "cobaltcustody.example", "primaryLinkLabel": "", "secondaryLinks": []],
+                "address": ["addressStreet1": "20 Gresham St", "addressCity": "London", "addressPostcode": "EC2V 7JE", "addressCountry": "United Kingdom"],
+                "employees": 35, "sectors": ["CUSTODY"], "tier": "TIER_3", "accountOwnerId": nil,
+                "tag": nil, "companyType": ["CUSTODIAN"],
+            ]),
+            stamp([
+                "id": "c0000000-0000-4000-8000-000000000007", "name": "Inkwell Sign",
+                "domainName": ["primaryLinkUrl": "inkwellsign.example", "primaryLinkLabel": "", "secondaryLinks": []],
+                "sectors": [], "tier": "TIER_3", "accountOwnerId": nil, "tag": nil, "companyType": [],
             ]),
         ]
 
@@ -60,6 +93,8 @@ extension DemoData {
             person(3, "Chloe", "Marsh", "chloe@lumenpay.example", "CTO", 3, tags: [], stage: nil, addedBy: 2),
             person(4, "Dev", "Patel", "dev@press.example", "Reporter", nil, tags: ["PRESS"], stage: "COLD", warmth: "RATING_1", addedBy: 1),
             person(5, "Eve", "Lindqvist", "eve@northwind.example", "Compliance", 1, tags: ["REGULATOR", "ADVISOR", "PARTNER", "INVESTOR"], stage: "DORMANT"),
+            person(6, "Farah", "Nasser", "farah@atlas-am.example", "Portfolio Manager", 4, tags: [], stage: nil),
+            person(7, "Gus", "Moreau", "gus@cobaltcustody.example", "Head of Custody", 8, tags: [], stage: nil),
         ]
 
         let opportunities: [Record] = [

@@ -18,6 +18,25 @@ targets:
       - path: Sources
       # XcodeGen picks the build phase from the file type (asset catalogs → Resources).
       - path: Resources
+    # Local builds only: bundle Claude's guesses for More → Claude's educated
+    # guesses. Config/claude-guesses.json is private CRM data (gitignored), so
+    # Release builds never copy it, and Debug builds without it still build.
+    postBuildScripts:
+      - name: Bundle Claude's guesses (Debug only)
+        # Runs every build: the input may come and go.
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/Config/claude-guesses.json
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/claude-guesses.json
+        script: |
+          dest="${SCRIPT_OUTPUT_FILE_0}"
+          if [ "${CONFIGURATION}" = "Debug" ] && [ -f "${SCRIPT_INPUT_FILE_0}" ]; then
+            cp "${SCRIPT_INPUT_FILE_0}" "${dest}"
+            echo "Bundled Claude's guesses"
+          else
+            rm -f "${dest}"
+          fi
     info:
       path: Sources/App/Info.plist
       properties:

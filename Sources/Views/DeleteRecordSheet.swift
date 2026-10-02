@@ -41,6 +41,11 @@ extension Record {
 struct DeleteRecordSheet: View {
     let object: ObjectMetadata
     let record: Record
+    /// Confirm with a slide instead of a tap (deletes Claude suggested).
+    var slideToConfirm = false
+    /// Start with "also delete its people" and "stop importing" on: for
+    /// inbox noise, where both are what you'd want.
+    var preselectExtras = false
     let onDeleted: () -> Void
 
     @Environment(AppModel.self) private var app
@@ -87,18 +92,26 @@ struct DeleteRecordSheet: View {
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
                 }
-                Section {
-                    Button(role: .destructive) {
-                        Task { await run() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isWorking { ProgressView() } else { Text(confirmLabel).fontWeight(.semibold) }
-                            Spacer()
-                        }
+                if slideToConfirm {
+                    Section {
+                        SlideToConfirm(title: "Slide to " + confirmLabel.lowercased(), isWorking: isWorking) { Task { await run() } }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                     }
-                    .disabled(isWorking)
-                    .accessibilityIdentifier("delete.confirm")
+                } else {
+                    Section {
+                        Button(role: .destructive) {
+                            Task { await run() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isWorking { ProgressView() } else { Text(confirmLabel).fontWeight(.semibold) }
+                                Spacer()
+                            }
+                        }
+                        .disabled(isWorking)
+                        .accessibilityIdentifier("delete.confirm")
+                    }
                 }
             }
             .navigationTitle("Delete \(title)?")
@@ -106,7 +119,11 @@ struct DeleteRecordSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isWorking) }
             }
-            .task { await loadPeople() }
+            .task {
+                if preselectExtras { block = blockHandle != nil }
+                await loadPeople()
+                if preselectExtras { deletePeople = !people.isEmpty }
+            }
         }
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(isWorking)

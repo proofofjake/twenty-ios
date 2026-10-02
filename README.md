@@ -84,7 +84,7 @@ scripts/testflight.sh --no-upload  # archive + export an .ipa only
 - `Sources/API`: `TwentyService` protocol, `LiveTwentyService` (REST + GraphQL), `JSONValue`, Keychain
 - `Sources/Models`: field/object metadata, `Record`, `FieldFormatter`
 - `Sources/Views/Editors`: one editor per field type; `FieldEditorKind` decides which
-- `Sources/Demo`: in-memory `DemoTwentyService` with sample data
+- `Sources/Demo`: in-memory `DemoTwentyService` with sample data (and demo guesses, Debug only)
 - `Tests`: wire-format and PATCH-diff unit tests
 - `UITests`: edits a multi-select end to end in demo mode
 
@@ -152,6 +152,28 @@ marked so they can't be mistaken for the TestFlight app:
 - they draw an orange frame around the screen (`LocalBuildFrame`, `#if DEBUG`).
 
 Release builds (TestFlight) are unchanged: "CRM" with the blue icon.
+
+## Claude's educated guesses (local builds only)
+
+- **What it is:** More → **Claude's educated guesses**, a card per company with
+  suggested values (in orange) for empty Website, Account owner, Type and
+  Company type fields, plus an optional note ("Duplicate: …"). Everything is
+  `#if DEBUG`, so TestFlight builds don't contain it.
+- **Where guesses come from:** Claude writes `Config/claude-guesses.json`
+  (version 1, private CRM data, gitignored). A Debug-only build phase copies it
+  into the app if it exists; demo mode uses `Sources/Demo/DemoGuesses.swift`.
+  For new guesses, ask Claude to refresh the file, then rebuild.
+- **Checked when the deck loads:** a guess is shown only if the field is still
+  empty and the value is valid (an existing option, a workspace member, a
+  hostname). Unknown multi-select options are dropped; the rest are kept.
+- **Swiping:** tap a guess to leave it out. Right stages the rest in Settings →
+  Recent actions, writing nothing to Twenty; left declines them. Declines are
+  saved per workspace by company, field and value, so a different guess can
+  come back later. ↶ undoes the last swipe.
+- **Applying:** in Recent actions, **Apply** refetches the company and PATCHes
+  only the fields that are still empty (a website is written as
+  `{primaryLinkUrl: "https://<host>", primaryLinkLabel: "", secondaryLinks: []}`,
+  an owner as `accountOwnerId`). **Discard** drops it. Staged guesses don't expire.
 
 ## List filters
 

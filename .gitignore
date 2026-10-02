@@ -14,3 +14,6 @@ DerivedData/
 Config/Secrets.xcconfig
 build-device/
 build-release/
+
+# Claude's guesses for the Debug guess deck: real CRM data, never committed
+Config/claude-guesses.json

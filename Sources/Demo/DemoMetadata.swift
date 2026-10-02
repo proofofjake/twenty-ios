@@ -430,7 +430,7 @@ enum DemoData {
       "id": "84df9429-f609-4935-8883-78cb566199df",
       "type": "LINKS",
       "name": "domainName",
-      "label": "Domain",
+      "label": "Website",
       "description": null,
       "icon": null,
       "isNullable": true,
@@ -438,7 +438,7 @@ enum DemoData {
       "isSystem": false,
       "isCustom": false,
       "options": null,
-      "settings": null,
+      "settings": {"type": "domain", "maxNumberOfValues": 1},
       "relation": null
      },
      {
@@ -637,6 +637,262 @@ enum DemoData {
       "isSystem": true,
       "isCustom": false,
       "options": null,
+      "settings": null,
+      "relation": null
+     },
+     {
+      "id": "f-company-tag",
+      "type": "SELECT",
+      "name": "tag",
+      "label": "Type",
+      "description": null,
+      "icon": null,
+      "isNullable": true,
+      "isActive": true,
+      "isSystem": false,
+      "isCustom": true,
+      "options": [
+       {
+        "id": "cdb380fa-25bf-4ea9-870f-f58733a7668c",
+        "value": "INSTITUTIONAL",
+        "label": "Institutional",
+        "color": "violet",
+        "position": 0
+       },
+       {
+        "id": "7801f608-9a68-407f-bc5f-fbfa002e012b",
+        "value": "DEFI",
+        "label": "DeFI",
+        "color": "blue",
+        "position": 1
+       },
+       {
+        "id": "d3cd1f03-e193-496a-a461-1396fb846824",
+        "value": "REGULATORY",
+        "label": "Regulatory",
+        "color": "orange",
+        "position": 2
+       },
+       {
+        "id": "37c5f3dd-82e7-4971-b5e8-7184d7fd4564",
+        "value": "INDUSTRY_GROUPS",
+        "label": "Industry Groups",
+        "color": "green",
+        "position": 3
+       }
+      ],
+      "settings": null,
+      "relation": null
+     },
+     {
+      "id": "f-company-type",
+      "type": "MULTI_SELECT",
+      "name": "companyType",
+      "label": "Company type",
+      "description": null,
+      "icon": null,
+      "isNullable": true,
+      "isActive": true,
+      "isSystem": false,
+      "isCustom": true,
+      "options": [
+       {
+        "id": "3751fd04-eced-42ea-81e4-f07f4f233876",
+        "value": "EXCHANGE",
+        "label": "Exchange",
+        "color": "blue",
+        "position": 0
+       },
+       {
+        "id": "17601b7f-26a9-4141-aa8e-5bcd3e536617",
+        "value": "INSTITUTIONAL_PARTNER",
+        "label": "Institutional partner",
+        "color": "violet",
+        "position": 1
+       },
+       {
+        "id": "8f394638-6121-40b0-bc4b-d5e2354e2034",
+        "value": "BANKING_OR_PAYMENT_PROVIDER",
+        "label": "Banking or payment provider",
+        "color": "cyan",
+        "position": 2
+       },
+       {
+        "id": "a48b9ecf-6ee4-4223-b844-2451fb37fc50",
+        "value": "MARKET_MAKER",
+        "label": "Market maker",
+        "color": "green",
+        "position": 3
+       },
+       {
+        "id": "89f43f75-eae6-4d49-801c-83d8570f570f",
+        "value": "VENDOR",
+        "label": "Vendor",
+        "color": "gray",
+        "position": 4
+       },
+       {
+        "id": "4758c8ff-b3f6-46c6-98dc-babda6a357a5",
+        "value": "CARD_PROVIDER",
+        "label": "Card Provider",
+        "color": "gray",
+        "position": 5
+       },
+       {
+        "id": "6ffb984d-a65c-4b0c-99a5-6e0c77b8094d",
+        "value": "RWA_INVESTMENT_PLATFORM",
+        "label": "RWA Investment Platform",
+        "color": "ruby",
+        "position": 6
+       },
+       {
+        "id": "ce68ca46-7038-480e-b884-c7b6eb2093c2",
+        "value": "TOKENISED_ONCHAIN_STOCKS_ISSUER",
+        "label": "Tokenised Onchain Stocks Issuer",
+        "color": "gray",
+        "position": 7
+       },
+       {
+        "id": "e8f68600-2949-4734-b5e5-46271aeec09d",
+        "value": "BLOCKCHAIN_L2",
+        "label": "Blockchain/L2",
+        "color": "red",
+        "position": 8
+       },
+       {
+        "id": "efa74981-89c1-43d4-b8da-44e8bf624cbb",
+        "value": "PAYMENTS_INFRA",
+        "label": "Payments Infra",
+        "color": "orange",
+        "position": 9
+       },
+       {
+        "id": "aa83f5eb-26c3-47da-b3d4-65c36a00833e",
+        "value": "ONRAMP_WIDGET",
+        "label": "Onramp Widget",
+        "color": "iris",
+        "position": 10
+       },
+       {
+        "id": "a75ce2e2-e3d6-46a8-b78b-6afd19aae4c2",
+        "value": "CHAIN_FOUNDATION_TREASURY",
+        "label": "Chain Foundation/Treasury",
+        "color": "brown",
+        "position": 11
+       },
+       {
+        "id": "c92feffd-d0f4-42dd-95e7-42dbc518b159",
+        "value": "DEFI_PROTOCOL",
+        "label": "Defi Protocol",
+        "color": "amber",
+        "position": 12
+       },
+       {
+        "id": "12b83b39-9f6a-4bfe-83ac-8a386873a865",
+        "value": "LENDING_PROTOCOL",
+        "label": "Lending Protocol",
+        "color": "red",
+        "position": 13
+       },
+       {
+        "id": "96371bde-fb99-4902-9f52-a13ffbfd27b4",
+        "value": "TRADFI_RESERVE",
+        "label": "TradFi Reserve",
+        "color": "red",
+        "position": 14
+       },
+       {
+        "id": "6f6e1954-c8e3-4641-b93b-af3732583b22",
+        "value": "ALT_STABLE",
+        "label": "Alt Stable",
+        "color": "bronze",
+        "position": 15
+       },
+       {
+        "id": "2ac8c15f-3b96-4005-a3cc-71c38ea0da9d",
+        "value": "CUSTODIAN",
+        "label": "Custodian",
+        "color": "tomato",
+        "position": 16
+       },
+       {
+        "id": "4412f189-3f74-4abb-baac-09e20669b77d",
+        "value": "COLLATERAL_PRIME_BROKER",
+        "label": "Collateral / Prime Broker",
+        "color": "gray",
+        "position": 17
+       },
+       {
+        "id": "6dc0a8b3-60d9-42b5-9b91-30498ee592ba",
+        "value": "INSURANCE",
+        "label": "Insurance",
+        "color": "iris",
+        "position": 18
+       },
+       {
+        "id": "432b89a6-d720-4a0c-8c28-de7a318f6e8f",
+        "value": "APP",
+        "label": "App",
+        "color": "grass",
+        "position": 19
+       },
+       {
+        "id": "37dea2e6-2f35-4038-b873-a7d2a40df1ac",
+        "value": "ASSET_MANGER",
+        "label": "Asset Manger",
+        "color": "green",
+        "position": 20
+       },
+       {
+        "id": "6fd93d0b-2a3c-4c93-a733-4d96b9063043",
+        "value": "BANK",
+        "label": "Bank",
+        "color": "jade",
+        "position": 21
+       },
+       {
+        "id": "058c88de-1434-45ed-9258-683286872ae3",
+        "value": "INSTITUTIONAL_INFRASTRUCTURE",
+        "label": "Institutional Infrastructure",
+        "color": "mint",
+        "position": 22
+       },
+       {
+        "id": "d6c2c61b-ecbc-41d3-8902-1c998c474a85",
+        "value": "HEDGE_FUNDS",
+        "label": "Hedge Funds",
+        "color": "tomato",
+        "position": 23
+       },
+       {
+        "id": "130dc747-a03f-4eed-ac77-85e4597d449e",
+        "value": "CONSULTANTS",
+        "label": "Consultants",
+        "color": "orange",
+        "position": 24
+       },
+       {
+        "id": "e7c6cf10-f4d4-49d7-9f67-b2b355b3211e",
+        "value": "PENSION_FUNDS",
+        "label": "Pension Funds",
+        "color": "amber",
+        "position": 25
+       },
+       {
+        "id": "bb97978e-7319-4ce8-8138-d904db15ccf5",
+        "value": "RATING_AGENCIES",
+        "label": "Rating Agencies",
+        "color": "yellow",
+        "position": 26
+       },
+       {
+        "id": "d9024d22-dbf2-4791-bc10-2b4f38ecccbb",
+        "value": "MERCH",
+        "label": "merch",
+        "color": "lime",
+        "position": 27
+       }
+      ],
       "settings": null,
       "relation": null
      },

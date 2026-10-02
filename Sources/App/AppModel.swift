@@ -97,6 +97,10 @@ final class AppModel {
                     // Our own entry; removing it for good lets sync resume.
                     try await service.deleteRecord(blocklist, id: id, permanently: true)
                 }
+            #if DEBUG
+            case .pendingUpdate, .pendingMerge:
+                break // never written, so nothing to restore
+            #endif
             }
             remaining.removeAll { $0 == item }
         }
@@ -123,15 +127,151 @@ final class AppModel {
         }
     }
 
+    /// Commits every delete. Staged updates (Debug) aren't touched.
     func commitAll() async throws {
-        for action in recentActions { try await commit(action) }
+        for action in recentActions where action.hasDeletes { try await commit(action) }
     }
+
+    #if DEBUG
+    // MARK: Claude's educated guesses (Debug only)
+
+    /// Guesses swiped away in this workspace (`ClaudeGuesses.declineKey`).
+    private(set) var declinedGuesses: Set<String> = []
+    private var declineStore: GuessDeclineStore { GuessDeclineStore(workspaceKey: workspaceKey) }
+
+    func declineGuesses(_ keys: [String]) {
+        declinedGuesses.formUnion(keys)
+        declineStore.save(declinedGuesses)
+    }
+
+    func undeclineGuesses(_ keys: [String]) {
+        declinedGuesses.subtract(keys)
+        declineStore.save(declinedGuesses)
+    }
+
+    /// Cards sent to the bottom of the deck, and when.
+    private(set) var skippedGuesses: [String: Date] = [:]
+    private var skipStore: GuessSkipStore { GuessSkipStore(workspaceKey: workspaceKey) }
+
+    /// Sends a card to the bottom of the deck. Returns the previous skip time,
+    /// so the deck's undo can put it back exactly.
+    @discardableResult
+    func skipGuess(_ companyID: String) -> Date? {
+        let previous = skippedGuesses[companyID]
+        skippedGuesses[companyID] = Date()
+        skipStore.save(skippedGuesses)
+        return previous
+    }
+
+    func unskipGuess(_ companyID: String, restoring previous: Date?) {
+        skippedGuesses[companyID] = previous
+        skipStore.save(skippedGuesses)
+    }
+
+    /// Companies with a staged update, which the deck leaves out.
+    var stagedGuessIDs: Set<String> { Set(recentActions.compactMap { $0.pendingUpdate?.id }) }
+
+    /// Staged merges, by `ClaudeGuesses.mergeKey`.
+    var stagedMergeKeys: Set<String> { Set(recentActions.compactMap { $0.pendingMerge.map { ClaudeGuesses.mergeKey($0.ids) } }) }
+    /// Companies a staged merge will delete, which the deck leaves out.
+    var mergedAwayIDs: Set<String> { Set(recentActions.compactMap(\.pendingMerge).flatMap(\.mergeIDs)) }
+
+    /// The deck: the bundled guesses (demo ones in demo mode), checked
+    /// against each company as it is now. Throws `.missing` without a file.
+    func loadGuessCards() async throws -> (file: ClaudeGuesses.File, cards: [ClaudeGuesses.Card]) {
+        guard let service, let company = object(named: "company") else { throw TwentyError(message: "Not connected") }
+        let file = isDemo ? try ClaudeGuesses.parse(Data(DemoData.guessesJSON.utf8)) : try ClaudeGuesses.bundled()
+        if members.isEmpty { await loadMembers() }
+        let records = try await service.fetchRecords(company, ids: file.companyIDs)
+        let cards = ClaudeGuesses.cards(for: file.entries, records: records, object: company, members: members,
+                                        memberObject: object(named: "workspaceMember"),
+                                        declined: declinedGuesses, staged: stagedGuessIDs.union(mergedAwayIDs),
+                                        merges: file.merges, stagedMerges: stagedMergeKeys)
+        return (file, ClaudeGuesses.skippedLast(cards, skips: skippedGuesses))
+    }
+
+    /// Accepting a card: logs the changes in Recent actions without writing
+    /// them. No undo banner; the deck has its own undo.
+    @discardableResult
+    func stage(_ changes: [PendingChange], for record: Record, of object: ObjectMetadata) -> RecentAction {
+        let action = RecentAction(items: [.pendingUpdate(object: object.nameSingular, id: record.id, title: record.title(in: object), changes: changes)])
+        recentActions.insert(action, at: 0)
+        saveRecentActions()
+        return action
+    }
+
+    /// The merge window's "Add to Recent actions": logs the merge without
+    /// running it. Merge… in Recent actions runs it.
+    @discardableResult
+    func stageMerge(keep: Record, merging others: [Record], of object: ObjectMetadata, overrides: [PendingChange]) -> RecentAction {
+        let merge = PendingMerge(object: object.nameSingular, keepID: keep.id, keepTitle: keep.title(in: object),
+                                 mergeIDs: others.map(\.id), mergeTitles: others.map { $0.title(in: object) }, overrides: overrides)
+        let action = RecentAction(items: [.pendingMerge(merge: merge)])
+        recentActions.insert(action, at: 0)
+        saveRecentActions()
+        return action
+    }
+
+    /// Runs a staged merge, for good: refetches every record (failing if one
+    /// is gone), logs them all to Documents/merge-log.jsonl, PATCHes the
+    /// survivor with the overrides still valid, then merges. Returns the
+    /// overrides skipped because the survivor changed since. With
+    /// `discarding` off, the caller drops the action itself (once the sheet
+    /// presented from its row is gone).
+    @discardableResult
+    func applyMerge(_ action: RecentAction, discarding: Bool = true) async throws -> [ClaudeGuesses.Skipped] {
+        guard let service else { throw TwentyError(message: "Not connected") }
+        guard let merge = action.pendingMerge, let object = object(named: merge.object) else { return [] }
+        var records: [Record] = []
+        for (id, title) in zip(merge.ids, [merge.keepTitle] + merge.mergeTitles) {
+            do {
+                records.append(try await service.fetchRecord(object, id: id))
+            } catch {
+                throw TwentyError(message: "Couldn't find \(title) in Twenty (\(error.localizedDescription)). Nothing was merged; discard this one.")
+            }
+        }
+        do { try MergeLog.append(merge, records: records) } catch {
+            throw TwentyError(message: "Couldn't save the backup to merge-log.jsonl (\(error.localizedDescription)). Nothing was merged.")
+        }
+        let (patch, skipped) = ClaudeGuesses.mergePatch(for: merge.overrides, survivor: records[0], object: object,
+                                                        members: members, memberObject: self.object(named: "workspaceMember"))
+        if !patch.isEmpty { _ = try await service.updateRecord(object, id: merge.keepID, patch: patch) }
+        let survivor = try await service.mergeRecords(object, ids: merge.ids, conflictPriorityIndex: 0, dryRun: false)
+        didSave(survivor)
+        deletedIDs.formUnion(merge.mergeIDs)
+        listRevision[object.nameSingular, default: 0] += 1
+        // People and the rest moved to the survivor.
+        for list in object.relatedLists(in: objects) { listRevision[list.target.nameSingular, default: 0] += 1 }
+        if discarding { discard(action.id) }
+        return skipped
+    }
+
+    /// Drops a staged update without touching Twenty (Discard, or the deck's undo).
+    func discard(_ actionID: UUID) {
+        recentActions.removeAll { $0.id == actionID }
+        saveRecentActions()
+    }
+
+    /// Writes a staged update: refetches the record and PATCHes only the
+    /// fields still empty, so it never overwrites a value set since.
+    /// Returns what was skipped.
+    @discardableResult
+    func apply(_ action: RecentAction) async throws -> [ClaudeGuesses.Skipped] {
+        guard let service else { throw TwentyError(message: "Not connected") }
+        guard let pending = action.pendingUpdate, let object = object(named: pending.object) else { return [] }
+        let current = try await service.fetchRecord(object, id: pending.id)
+        let (patch, skipped) = ClaudeGuesses.patch(for: pending.changes, current: current, object: object)
+        let updated = patch.isEmpty ? current : try await service.updateRecord(object, id: pending.id, patch: patch)
+        didSave(updated)
+        discard(action.id)
+        return skipped
+    }
+    #endif
 
     private var actionsKey: String { "recentActions." + workspaceKey }
 
     private func loadRecentActions() {
-        recentActions = (UserDefaults.standard.data(forKey: actionsKey)
-            .flatMap { try? JSONDecoder().decode([RecentAction].self, from: $0) } ?? [])
+        recentActions = (UserDefaults.standard.data(forKey: actionsKey).map(RecentAction.decodeList) ?? [])
             .filter { !$0.isExpired }
     }
 
@@ -196,6 +336,10 @@ final class AppModel {
             UserDefaults.standard.removeObject(forKey: CreateFlowView.advancedModeKey)
             UserDefaults.standard.removeObject(forKey: "listFilters.demo")
             UserDefaults.standard.removeObject(forKey: "recentActions.demo")
+            #if DEBUG
+            GuessDeclineStore(workspaceKey: "demo").save([])
+            GuessSkipStore(workspaceKey: "demo").save([:])
+            #endif
         }
         if isDemo {
             service = DemoTwentyService()
@@ -286,6 +430,10 @@ final class AppModel {
         objects = Self.withInferences(loaded)
         loadFilters()
         loadRecentActions()
+        #if DEBUG
+        declinedGuesses = declineStore.load()
+        skippedGuesses = skipStore.load()
+        #endif
         phase = .ready
         Task { await loadMembers() }
     }
@@ -328,6 +476,10 @@ final class AppModel {
         guard let service else { phase = .disconnected; return }
         loadFilters()
         loadRecentActions()
+        #if DEBUG
+        declinedGuesses = declineStore.load()
+        skippedGuesses = skipStore.load()
+        #endif
         phase = .loading
         do {
             objects = Self.withInferences(try await service.fetchObjects())

@@ -73,6 +73,43 @@ actor DemoTwentyService: TwentyService {
 
     func fetchCurrentMember() async throws -> Record? { nil }
 
+    #if DEBUG
+    /// Like Twenty's: merged values (`TwentyMerge`) on the survivor, every
+    /// many-to-one relation to the others re-pointed at it, and the others
+    /// destroyed (not trashed). `dryRun` only returns the would-be record.
+    func mergeRecords(_ object: ObjectMetadata, ids: [String], conflictPriorityIndex: Int, dryRun: Bool) async throws -> Record {
+        guard (2...ClaudeGuesses.maxMergeRecords).contains(ids.count), ids.indices.contains(conflictPriorityIndex) else {
+            throw TwentyError(message: "Merge 2 to \(ClaudeGuesses.maxMergeRecords) records", status: 400)
+        }
+        let all = store[object.namePlural] ?? []
+        let records = ids.compactMap { id in all.first { $0.id == id } }
+        guard records.count == ids.count else { throw TwentyError(message: "One or more records were not found.", status: 404) }
+        let survivorID = ids[conflictPriorityIndex]
+        var survivor = Record(id: survivorID, values: TwentyMerge.merged(records, priorityID: survivorID, object: object))
+        if dryRun {
+            // Twenty gives the would-be record a fresh id.
+            let id = UUID().uuidString.lowercased()
+            var preview = survivor.values
+            preview["id"] = .string(id)
+            return expand(Record(id: id, values: preview), object: object)
+        }
+        survivor.values["updatedAt"] = .string(FieldFormatter.dateTimeString(Date()))
+        let others = Set(ids).subtracting([survivorID])
+        for other in objects {
+            for field in other.fields where field.type == .relation && field.relationType == .manyToOne
+                && field.relation?.targetObjectMetadata?.nameSingular == object.nameSingular {
+                guard var rows = store[other.namePlural] else { continue }
+                for index in rows.indices where rows[index][field.joinColumnName].stringValue.map(others.contains) == true {
+                    rows[index][field.joinColumnName] = .string(survivorID)
+                }
+                store[other.namePlural] = rows
+            }
+        }
+        store[object.namePlural] = all.filter { !others.contains($0.id) }.map { $0.id == survivorID ? survivor : $0 }
+        return expand(survivor, object: object)
+    }
+    #endif
+
     /// What the server's relation filter computes: the person's inferred point
     /// of contact, stored where `ListFilter.matches` looks for it.
     private func withInferredPointOfContact(_ record: Record, object: ObjectMetadata) -> Record {
